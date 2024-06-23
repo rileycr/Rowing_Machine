@@ -9,7 +9,7 @@ Doar::Doar(bool isStarboard)
 
    // Set cycle values
    _numCycleSteps = 1000;
-   _increment = 10;
+   _increment = 7;
    _currentStep = 0;
 
    // Set servo values
@@ -56,7 +56,7 @@ int Doar::getDriveAngle(double amplitude)
 
 void Doar::determineState(double forwardInput, double turnInput)
 {
-   auto deadzone = 0.10;
+   auto deadzone = 0.25;
 
    // Determine Forward/Backwards component
    if (abs(forwardInput) <= deadzone)

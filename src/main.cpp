@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Servo.h>
+#include <PinChangeInterrupt.h>
 
 #include "Doar.h"
 
@@ -32,11 +33,11 @@
 
 // Define Logic frequency, set frame length in ms
 // 22ms ~ 45.45 frames/s
-const int FRAME_FREQUENCY = 45;
+// 10ms = 100 frames/s
+const int FRAME_FREQUENCY = 100;
 const int FRAME_LENGTH = 1000 / FRAME_FREQUENCY;
 
 // Frame Timing
-unsigned long currentTime = 0;
 unsigned long frameExecuteTime = 0;
 
 // Declare the Digital Oar objects
@@ -50,60 +51,79 @@ bool ledOn = true;
 unsigned long forwardSignalAvg;
 unsigned long turnSignalAvg;
 
+volatile int rxTurnPulse;
+volatile int rxFwdPulse;
+
+volatile unsigned long turnStartTime;
+volatile unsigned long fwdStartTime;
+
+void updateTurn()
+{
+   if (digitalRead(RX_TURN) == HIGH)
+   {
+      turnStartTime = micros();
+   }
+   else
+   {
+      rxTurnPulse = micros() - turnStartTime;
+   }
+}
+
+void updateFwd()
+{
+   if (digitalRead(RX_FORWARD) == HIGH)
+   {
+      fwdStartTime = micros();
+   }
+   else
+   {
+      rxFwdPulse = micros() - fwdStartTime;
+   }
+}
+
+float filter(float prevValue, float currentValue, int filter)
+{
+   float lengthFiltered = (prevValue + (currentValue * filter)) / (filter + 1);
+   return lengthFiltered;
+}
+
 void setup()
 {
-   // Initialize input values
-   forwardSignalAvg = 1500;
-   turnSignalAvg = 1500;
-
-   // Frame timing
-   frameExecuteTime = millis();
+   // Debug LED pin
+   pinMode(DEBUG_LED, OUTPUT);
 
    // Configure RX input pins
    pinMode(RX_FORWARD, INPUT);
    pinMode(RX_TURN, INPUT);
 
-   // Debug LED pin
-   pinMode(DEBUG_LED, OUTPUT);
-
    // Initialize the Oar objects
    starboard.attachPins(STARBOARD_LIFT, STARBOARD_DRIVE);
    port.attachPins(PORT_LIFT, PORT_DRIVE);
+
+   attachPinChangeInterrupt(digitalPinToPCINT(RX_TURN), updateTurn, CHANGE);
+   attachPinChangeInterrupt(digitalPinToPCINT(RX_FORWARD), updateFwd, CHANGE);
 }
 
 void loop()
 {
-   // Average the last X frames
-   auto weight = 5;
-
-   // Getting RX signals, values 1000 to 2000
-   auto rxForwardSignal = pulseIn(RX_FORWARD, HIGH);
-   auto rxTurnSignal = pulseIn(RX_TURN, HIGH);
-
-   // Calculate running average.
-   forwardSignalAvg = (forwardSignalAvg * (weight - 1) + rxForwardSignal) / weight;
-   turnSignalAvg = (turnSignalAvg * (weight - 1) + rxTurnSignal) / weight;
-
    // Execute logic at start of the next frame
-   if (millis() >= frameExecuteTime)
+   auto currentMilis = millis();
+   if (currentMilis >= frameExecuteTime)
    {
-      //if (ledOn)
-      //{
-      //   digitalWrite(DEBUG_LED, LOW);
-      //   ledOn = false;
-      //}
-      //else
-      //{
-      //   digitalWrite(DEBUG_LED, HIGH);
-      //   ledOn = true;
-      //}
+      // Calculate running average.
+      auto weight = 5;
+      forwardSignalAvg = filter(forwardSignalAvg, rxFwdPulse, weight);
+      turnSignalAvg = filter(turnSignalAvg, rxTurnPulse, weight);
 
       // If raw rx signals are low (no signal), reset oars
       // Else, normal operation
-      if (rxForwardSignal < 500 || rxTurnSignal < 500)
+      if (forwardSignalAvg < 500 || turnSignalAvg < 500)
       {
          starboard.reset();
          port.reset();
+
+         // Turn on debug LED
+         digitalWrite(DEBUG_LED, HIGH);
       }
       else
       {
@@ -114,9 +134,12 @@ void loop()
          // Move the oars to the next step based on input
          starboard.step(forwardInput, turnInput);
          port.step(forwardInput, turnInput);
+
+         // Turn off debug LED
+         digitalWrite(DEBUG_LED, LOW);
       }
 
       // Set execute time to next milestone
-      frameExecuteTime += FRAME_LENGTH;
+      frameExecuteTime = currentMilis + FRAME_LENGTH;
    }
 }
