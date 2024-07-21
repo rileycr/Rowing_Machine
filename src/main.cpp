@@ -87,6 +87,41 @@ float filter(float prevValue, float currentValue, int filter)
    return lengthFiltered;
 }
 
+int deadzoneThreshold(int pos)
+{
+   // get zero centre position (1000 to 2000 -> -500 to 500)
+   pos = pos - 1500;
+
+   // threshold value for control sticks
+   auto threshold = 50;
+   if (pos > threshold)
+   {
+      pos = pos - threshold;
+   }
+   else if (pos < -threshold)
+   {
+      pos = pos + threshold;
+   }
+   else
+   {
+      pos = 0;
+   }
+
+   pos = map(pos, -500 + threshold, 500 - threshold, 1000, 2000);
+   pos = constrain(pos, 1000, 2000);
+
+   return pos;
+}
+
+bool inputsValid(int turnInput, int fwdInput)
+{
+   if (fwdInput > 2050 || fwdInput < 950 || turnInput > 2050 || turnInput < 920)
+   {
+      return false;
+   }
+   return true;
+}
+
 void setup()
 {
    // Debug LED pin
@@ -102,6 +137,18 @@ void setup()
 
    attachPinChangeInterrupt(digitalPinToPCINT(RX_TURN), updateTurn, CHANGE);
    attachPinChangeInterrupt(digitalPinToPCINT(RX_FORWARD), updateFwd, CHANGE);
+
+   // Initialze to center
+   forwardSignalAvg = 1500;
+   turnSignalAvg = 1500;
+
+   // Set oars to center
+   starboard.reset();
+   port.reset();
+
+   // Turn on debug LED
+   digitalWrite(DEBUG_LED, HIGH);
+   delay(1000);
 }
 
 void loop()
@@ -110,10 +157,19 @@ void loop()
    auto currentMilis = millis();
    if (currentMilis >= frameExecuteTime)
    {
-      // Calculate running average.
-      auto weight = 5;
-      forwardSignalAvg = filter(forwardSignalAvg, rxFwdPulse, weight);
-      turnSignalAvg = filter(turnSignalAvg, rxTurnPulse, weight);
+      // Check for valid input data
+      if (!inputsValid(rxFwdPulse, rxTurnPulse))
+      {
+         return;
+      }
+
+      // Apply deadzone to inputs
+      auto forwardSignal = deadzoneThreshold(rxFwdPulse);
+      auto turnSignal = deadzoneThreshold(rxTurnPulse);
+
+      // Calculate filtered average.
+      forwardSignalAvg = filter(forwardSignalAvg, forwardSignal, 5);
+      turnSignalAvg = filter(turnSignalAvg, turnSignal, 5);
 
       // If raw rx signals are low (no signal), reset oars
       // Else, normal operation

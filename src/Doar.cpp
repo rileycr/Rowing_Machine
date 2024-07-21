@@ -56,7 +56,7 @@ int Doar::getDriveAngle(double amplitude)
 
 void Doar::determineState(double forwardInput, double turnInput)
 {
-   auto deadzone = 0.25;
+   auto deadzone = 0.10;
 
    // Determine Forward/Backwards component
    if (abs(forwardInput) <= deadzone)
